@@ -3,6 +3,8 @@ package shop.mtcoding.blog.controller;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.assertj.core.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -17,9 +19,15 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 import org.springframework.web.client.RestTemplate;
 import shop.mtcoding.blog._core.utils.ApiUtil;
+import shop.mtcoding.blog._core.utils.JwtUtil;
 import shop.mtcoding.blog.user.SessionUser;
+import shop.mtcoding.blog.user.User;
 import shop.mtcoding.blog.user.UserRequest;
 import shop.mtcoding.blog.user.UserResponse;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * 1. 통합테스트 (스프링의 모든 빈을 IoC에 등록하고 테스트 하는 것)
@@ -34,6 +42,19 @@ public class UserControllerTest {
 
     @Autowired
     private MockMvc mvc;
+
+    private static String jwt;
+
+    @BeforeAll
+    public static void setUp() { // BeforeAll은 static이어야 한다.
+        //System.out.println("한 번만 실행");
+        jwt = JwtUtil.create(User.builder()
+                .id(1)
+                .username("ssar")
+                .password("1234")
+                .email("ssar@nate.com")
+                .build());
+    }
 
     @Test
     public void join_test() throws Exception {
@@ -60,11 +81,11 @@ public class UserControllerTest {
         //System.out.println("statusCode : "+statusCode);
 
         // then
-        actions.andExpect(MockMvcResultMatchers.jsonPath("$.status").value(200));
-        actions.andExpect(MockMvcResultMatchers.jsonPath("$.msg").value("성공"));
-        actions.andExpect(MockMvcResultMatchers.jsonPath("$.body.id").value(4));
-        actions.andExpect(MockMvcResultMatchers.jsonPath("$.body.username").value("haha"));
-        actions.andExpect(MockMvcResultMatchers.jsonPath("$.body.email").value("haha@nate.com"));
+        actions.andExpect(jsonPath("$.status").value(200));
+        actions.andExpect(jsonPath("$.msg").value("성공"));
+        actions.andExpect(jsonPath("$.body.id").value(4));
+        actions.andExpect(jsonPath("$.body.username").value("haha"));
+        actions.andExpect(jsonPath("$.body.email").value("haha@nate.com"));
     }
 
     @Test
@@ -92,9 +113,9 @@ public class UserControllerTest {
         //System.out.println("statusCode : "+statusCode);
 
         // then
-        actions.andExpect(MockMvcResultMatchers.jsonPath("$.status").value(400));
-        actions.andExpect(MockMvcResultMatchers.jsonPath("$.msg").value("중복된 유저네임입니다"));
-        actions.andExpect(MockMvcResultMatchers.jsonPath("$.body").isEmpty());
+        actions.andExpect(jsonPath("$.status").value(400));
+        actions.andExpect(jsonPath("$.msg").value("중복된 유저네임입니다"));
+        actions.andExpect(jsonPath("$.body").isEmpty());
     }
 
     // {"status":400,"msg":"영문/숫자 2~20자 이내로 작성해주세요 : username","body":null}
@@ -126,8 +147,106 @@ public class UserControllerTest {
         //System.out.println("statusCode : "+statusCode);
 
         // then
-        actions.andExpect(MockMvcResultMatchers.jsonPath("$.status").value(400));
-        actions.andExpect(MockMvcResultMatchers.jsonPath("$.msg").value("영문/숫자 2~20자 이내로 작성해주세요 : username"));
-        actions.andExpect(MockMvcResultMatchers.jsonPath("$.body").isEmpty());
+        actions.andExpect(jsonPath("$.status").value(400));
+        actions.andExpect(jsonPath("$.msg").value("영문/숫자 2~20자 이내로 작성해주세요 : username"));
+        actions.andExpect(jsonPath("$.body").isEmpty());
+    }
+
+    @Test
+    public void login_success_test() throws Exception {
+        // given
+        UserRequest.LoginDTO reqDTO = new UserRequest.LoginDTO();
+        reqDTO.setUsername("ssar");
+        reqDTO.setPassword("1234");
+
+        String reqBody = om.writeValueAsString(reqDTO);
+
+        // when
+        ResultActions actions = mvc.perform(
+                MockMvcRequestBuilders.post("/login")
+                        .content(reqBody)
+                        .contentType(MediaType.APPLICATION_JSON)
+        );
+        String respBody = actions.andReturn().getResponse().getContentAsString();
+        System.out.println("respBody : "+respBody);
+        String jwt = actions.andReturn().getResponse().getHeader("Authorization");
+        System.out.println("jwt: " + jwt);
+
+        // then
+        actions.andExpect(status().isOk()); // header 검증
+        actions.andExpect(result -> result.getResponse().getHeader("Authorization").contains("Bearer " + jwt));
+
+        actions.andExpect(jsonPath("$.status").value(200));
+        actions.andExpect(jsonPath("$.msg").value("성공"));
+        actions.andExpect(jsonPath("$.body").isEmpty());
+
+    }
+
+    @Test
+    public void login_fail_test() throws Exception {
+        // given
+        UserRequest.LoginDTO reqDTO = new UserRequest.LoginDTO();
+        reqDTO.setUsername("ssar");
+        reqDTO.setPassword("12345");
+
+        String reqBody = om.writeValueAsString(reqDTO);
+
+        // when
+        ResultActions actions = mvc.perform(
+                MockMvcRequestBuilders.post("/login")
+                        .content(reqBody)
+                        .contentType(MediaType.APPLICATION_JSON)
+        );
+
+        // then
+        actions.andExpect(status().isUnauthorized()); // header 검증
+
+        actions.andExpect(jsonPath("$.status").value(401));
+        actions.andExpect(jsonPath("$.msg").value("인증되지 않았습니다"));
+        actions.andExpect(jsonPath("$.body").isEmpty());
+
+    }
+
+    @Test
+    public void userinfo_test() throws Exception {
+        // given
+        Integer userId = 1; // Assuming a user with ID 1 exists
+
+        // when
+        ResultActions actions = mvc.perform(
+                get("/api/users/" + userId)
+                        .header("Authorization", "Bearer " + jwt)
+        );
+
+        // eye
+        String respBody = actions.andReturn().getResponse().getContentAsString();
+        System.out.println("respBody: " + respBody);
+
+        // then
+        actions.andExpect(status().isOk());
+        actions.andExpect(jsonPath("$.status").value(200));
+        actions.andExpect(jsonPath("$.msg").value("성공"));
+        actions.andExpect(jsonPath("$.body.id").value(userId));
+        actions.andExpect(jsonPath("$.body.username").isNotEmpty());
+        actions.andExpect(jsonPath("$.body.email").isNotEmpty());
+    }
+    }
+
+    @Test
+    public void userinfo_not_found_test() throws Exception {
+        // given
+        Integer userId = 9999; // Assuming a user with ID 9999 does not exist
+
+        // when
+        ResultActions actions = mvc.perform(
+                get("/api/users/" + userId)
+                        .contentType(MediaType.APPLICATION_JSON)
+        );
+
+        // then
+        actions.andExpect(status().isNotFound());
+        actions.andExpect(jsonPath("$.status").value(404));
+        actions.andExpect(jsonPath("$.msg").value("User not found"));
+        actions.andExpect(jsonPath("$.body").isEmpty());
     }
 }
